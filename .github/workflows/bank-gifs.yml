@@ -1,0 +1,52 @@
+name: Bank GIFs from tweet videos
+
+on:
+  workflow_dispatch:
+    inputs:
+      picks:
+        description: "Comma-separated pick ids like R4_11,R4_12"
+        required: true
+        type: string
+
+jobs:
+  bank:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Convert and commit
+        env:
+          PICKS: ${{ inputs.picks }}
+        run: |
+          set -euo pipefail
+          mkdir -p bank
+          declare -A URLS=(
+            [R4_11]="https://video.twimg.com/tweet_video/HSsQ9HpWUAADeol.mp4"
+            [R4_12]="https://video.twimg.com/tweet_video/HRzrgRbb0AA5DF4.mp4"
+            [R4_14]="https://video.twimg.com/tweet_video/HRvPv2dawAAChWK.mp4"
+            [R4_15]="https://video.twimg.com/tweet_video/HS3k_qhXkAEm2LA.mp4"
+            [R4_16]="https://video.twimg.com/tweet_video/HTEIcOAXwAArSxf.mp4"
+            [R4_19]="https://video.twimg.com/tweet_video/HRYq27KaUAEq-fu.mp4"
+            [R4_20]="https://video.twimg.com/tweet_video/HTEz4vhWkAAJB9r.mp4"
+            [R4_21]="https://video.twimg.com/tweet_video/HRbF7dFaAAA_Cts.mp4"
+          )
+          IFS=',' read -ra ARR <<< "$PICKS"
+          for pick in "${ARR[@]}"; do
+            pick=$(echo "$pick" | xargs)
+            url="${URLS[$pick]:-}"
+            if [ -z "$url" ]; then echo "unknown pick $pick"; exit 1; fi
+            echo "Downloading $pick from $url"
+            curl -fsSL "$url" -o "/tmp/${pick}.mp4"
+            ffmpeg -y -i "/tmp/${pick}.mp4" -vf "fps=12,scale='min(480,iw)':-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" -loop 0 "bank/${pick}.gif"
+            ls -la "bank/${pick}.gif"
+            python3 -c "d=open('bank/${pick}.gif','rb').read(6); assert d in (b'GIF89a', b'GIF87a'), d; print('magic', d)"
+          done
+          git config user.name "gif-bank-bot"
+          git config user.email "gif-bank-bot@users.noreply.github.com"
+          git add bank/*.gif
+          git status
+          git commit -m "Bank GIFs: ${PICKS}" || echo "No changes"
+          git push
